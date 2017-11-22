@@ -1,0 +1,23 @@
+{
+  "name": "void/thread-conductor",
+  "description": "Provides basic threading support",
+  "minimum-stability": "stable",
+  "license": "proprietary",
+  "authors": [
+    {
+      "name": "Seth Thornberry",
+      "email": "stm555@hotmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "ThreadConductor\\":   "src/"
+    }
+  },
+  "require": {
+    "php": ">=5.5"
+  },
+  "require-dev": {
+    "phpunit/phpunit": ">=4.1"
+  }
+}
