@@ -48,6 +48,7 @@ class ConductorTest extends TestCase
             //verify the results are what our action returned
             $this->assertEquals($expectedResult, $result);
         }
+        $this->assertTrue(isset($key), "No results generated");
         $this->assertEquals(2, $key); //should have two threads, two results, final key should be the second action we requested
     }
 
@@ -120,5 +121,47 @@ class ConductorTest extends TestCase
         $results = iterator_to_array($conductor);
         $this->assertArrayHasKey('first', $results);
         $this->assertArrayHasKey('second', $results);
+    }
+
+    public function testGetActionCountProvidesNumberOfActionsAdded()
+    {
+        $conductor = new Conductor($this->mockStyle);
+        $conductor->addAction('first', function() {});
+        $conductor->addAction('second', function() {});
+        $conductor->addAction('third', function() {});
+        $conductor->addAction('fourth', function() {});
+        $this->assertEquals(4, $conductor->getActionCount());
+    }
+
+    public function testConductorHaltsAnyRunningThreadsWhenStopped()
+    {
+        $conductor = new Conductor($this->mockStyle);
+        $conductor->addAction('first', function() {});
+        $conductor->addAction('second', function() {});
+        $conductor->addAction('third', function() {});
+        $conductor->addAction('fourth', function() {});
+        $this->mockStyle->expects($this->exactly($conductor->getActionCount()))->method('halt');
+
+        $conductor->start();
+        $conductor->stop(); //stop before checking completion on any
+    }
+
+    public function testConductorAbortsThreadsWhenTooMuchTimeSpentWaiting()
+    {
+        $waitCycles = 2;
+        //wait time limit set to 2 wait cycles.
+        $waitTimeLimit = Conductor::SLEEP_TIME * $waitCycles;
+        //This makes the style report the thread as never completing
+        //And it is expected to timeout before it hits the final completion check
+        $this->mockStyle->expects($this->exactly($waitCycles + 1))->method('hasCompleted')->willReturn(false);
+        $conductor = new Conductor($this->mockStyle, $waitTimeLimit);
+        //Add a single action and expect a single halt called on it
+        $conductor->addAction('Single Action', function(){});
+        $this->mockStyle->expects($this->once())->method('halt');
+        $this->expectException(\ThreadConductor\Exception\Timeout::class);
+
+        foreach($conductor as $key => $result) {
+            $this->assertFalse('Script did not timeout after too many wait cycles');
+        }
     }
 }

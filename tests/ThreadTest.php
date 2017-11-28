@@ -56,9 +56,57 @@ class ThreadTest extends TestCase
         $thread($argument1, $argument2, $argument3);
     }
 
-    //@todo set the threads in different states and verify the status check methods
-//    public function testHasStarted()
-//    {
-//        $thread = new SoftLayer_Utility_Thread($this->stubAction, $this->stubThreadStyle);
-//    }
+    public function testThreadHaltHasStyleAttemptToHaltProcess()
+    {
+        $mockThreadStyle = $this->getMockBuilder(Serial::class)
+            ->setMethods(['spawn','halt'])
+            ->getMock();
+        $expectedThreadIdentifier = '123456';
+        $mockThreadStyle->expects($this->once())
+            ->method('spawn')
+            ->willReturn($expectedThreadIdentifier);
+        $mockThreadStyle->expects($this->once())
+            ->method('halt')
+            ->with($expectedThreadIdentifier);
+        $thread = new Thread(function() {}, $mockThreadStyle);
+        $thread();
+        $thread->halt();
+    }
+
+    public function testHasStartedIsTrueAfterThreadIsExecuted()
+    {
+        $thread = new Thread($this->stubAction, $this->stubThreadStyle);
+        $thread();
+        $this->assertTrue($thread->hasStarted());
+    }
+
+    public function testHasStartedIsFalseBeforeThreadExecutes()
+    {
+        $thread = new Thread($this->stubAction, $this->stubThreadStyle);
+        $this->assertFalse($thread->hasStarted());
+    }
+
+    public function testHasHaltedIsTrueAfterThreadIsHalted()
+    {
+        $thread = new Thread($this->stubAction, $this->stubThreadStyle);
+        $thread();
+        $thread->halt();
+        $this->assertTrue($thread->hasHalted());
+    }
+
+    public function testHasHaltedIsFalseWhenThreadHasNotBeenHalted()
+    {
+        $thread = new Thread($this->stubAction, $this->stubThreadStyle);
+        $this->assertFalse($thread->hasHalted(), 'Thread has not yet been executed (or halted), but is reporting halted');
+        $thread();
+        $this->assertFalse($thread->hasHalted(), 'Thread has executed but not been halted, but is reporting halted');
+    }
+
+    public function testHasCompletedIsTrueAfterThreadIsCompleted()
+    {
+        $thread = new Thread($this->stubAction, $this->stubThreadStyle);
+        $thread();
+        $thread->checkCompletion();
+        $this->assertTrue($thread->hasCompleted());
+    }
 }

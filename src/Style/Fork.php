@@ -7,10 +7,14 @@ use ThreadConductor\Messenger;
 use ThreadConductor\Exception\Fail as FailException;
 use ThreadConductor\Exception\ConcurrentLimitExceeded as ConcurrentLimitExceededException;
 
+/**
+ * @white
+ */
 class Fork implements StyleInterface
 {
     const ACTIVE_PROCESSES_MESSENGER_KEY = 'ACTIVE_PROCESS_COUNT';
     const ACTIVE_PROCESSES_MAXIMUM = 2;
+    const PCNTL_ANY_PROCESS_ID = -1;
 
     /**
      * @var Messenger $messenger
@@ -69,7 +73,7 @@ class Fork implements StyleInterface
      */
     public function getLatestCompleted()
     {
-        $pid = pcntl_waitpid(-1, $status, WNOHANG); //check for a child that has completed, but don't sit around
+        $pid = $this->getCompletedChildProcess();
         if ($this->isCompletedWaitResponse($pid)) { //child finished
             return $pid;
         }
@@ -83,8 +87,7 @@ class Fork implements StyleInterface
      */
     public function hasCompleted($threadIdentifier)
     {
-        $completedPid = pcntl_waitpid($threadIdentifier, $status, WNOHANG);
-        return $this->isCompletedWaitResponse($completedPid);
+        return $this->isCompletedWaitResponse($this->checkChildProcess($threadIdentifier));
     }
 
     /**
@@ -128,6 +131,9 @@ class Fork implements StyleInterface
     }
 
     /**
+     * This is intended as a thing wrapper around the pcntl call
+     * @codeCoverageIgnore
+     *
      * @return int
      */
     protected function fork()
@@ -136,6 +142,9 @@ class Fork implements StyleInterface
     }
 
     /**
+     * This is intended as a thing wrapper around the pcntl call
+     * @codeCoverageIgnore
+     *
      * @return int
      */
     protected function getPid()
@@ -145,6 +154,10 @@ class Fork implements StyleInterface
 
     /**
      * Interrupt the process and prevent any normal clean up behavior
+     * This is intended as a thing wrapper around the pcntl call
+     * @codeCoverageIgnore
+     *
+     *
      * @param int $pid
      */
     protected function hardExit($pid)
@@ -186,5 +199,29 @@ class Fork implements StyleInterface
     {
         $activeProcessCount = intval($this->messenger->receive(self::ACTIVE_PROCESSES_MESSENGER_KEY));
         return $activeProcessCount;
+    }
+
+    /**
+     * Check for a child that has completed, but don't sit around
+     * This is intended as a thin wrapper around the pcntl call
+     * @codeCoverageIgnore
+     *
+     * @return int
+     */
+    protected function getCompletedChildProcess()
+    {
+        return pcntl_waitpid(self::PCNTL_ANY_PROCESS_ID, $status, WNOHANG);
+    }
+
+    /**
+     * This is intended as a thing wrapper around the pcntl call
+     * @codeCoverageIgnore
+     *
+     * @param $childProcessId
+     * @return int
+     */
+    protected function checkChildProcess($childProcessId): int
+    {
+        return pcntl_waitpid($childProcessId, $status, WNOHANG);
     }
 }

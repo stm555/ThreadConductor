@@ -77,4 +77,17 @@ class SerialTest extends TestCase
 
         $this->assertEquals($expectedResult, $serialThreadStyle->flushResult($threadId));
     }
+
+    public function testGetLatestCompletedReturnsLastSpawnedThread()
+    {
+        $serialThreadStyle = new Serial();
+        //Spawn a thread
+        $threadId = $serialThreadStyle->spawn(function(){}, []);
+        //Latest completed is the thread we just spawned
+        $this->assertEquals($threadId, $serialThreadStyle->getLatestCompleted());
+        //Spawn another thread
+        $threadId2 = $serialThreadStyle->spawn(function(){}, []);
+        //Latest completed is the new thread we just spawned
+        $this->assertEquals($threadId2, $serialThreadStyle->getLatestCompleted());
+    }
 }

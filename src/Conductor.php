@@ -9,12 +9,18 @@ class Conductor implements \Iterator
 {
     // All time is is microseconds
     const SLEEP_TIME = 50000; // .05s
-    const DEFAULT_MAXIMUM_TOTAL_WAIT_TIME = 10000000; //
+    const DEFAULT_MAXIMUM_TOTAL_WAIT_TIME = 10000000; // 10s
 
     /**
      * @var Style
      */
     protected $style;
+
+    /**
+     * Maximum time to spend waiting, in microseconds
+     * @var int
+     */
+    protected $waitTimeLimit;
 
     /**
      * @var Thread[]
@@ -46,9 +52,10 @@ class Conductor implements \Iterator
      * SoftLayer_Utility_Thread_Conductor constructor.
      * @param Style $style
      */
-    public function __construct(Style $style)
+    public function __construct(Style $style, $waitTimeLimit = null)
     {
         $this->style = $style;
+        $this->waitTimeLimit = (isset($waitTimeLimit)) ? $waitTimeLimit : self::DEFAULT_MAXIMUM_TOTAL_WAIT_TIME;
     }
 
 
@@ -61,7 +68,7 @@ class Conductor implements \Iterator
     /**
      * Activate as many threads as our style supports
      */
-    protected function start()
+    public function start()
     {
         foreach($this->threads as $threadKey => $thread) {
             //@todo do something more elegant than continue here
@@ -136,7 +143,7 @@ class Conductor implements \Iterator
     protected function wait()
     {
         $totalWaitTime = $this->getTotalWaitTime(); // in micro seconds
-        if ($totalWaitTime > self::DEFAULT_MAXIMUM_TOTAL_WAIT_TIME) {
+        if ($totalWaitTime >= $this->waitTimeLimit) {
             throw new TimeoutException('Exceeded Conductor Total Wait Time For Threads');
         }
         usleep(self::SLEEP_TIME);

@@ -7,6 +7,7 @@ use ThreadConductor\Style\Fork;
 use ThreadConductor\Messenger;
 use ThreadConductor\Exception\Fail as FailException;
 use ThreadConductor\Exception\ConcurrentLimitExceeded as ConcurrentLimitExceededException;
+use ThreadConductor\Thread;
 
 class ForkTest extends TestCase
 {
@@ -33,7 +34,7 @@ class ForkTest extends TestCase
             ->setMethods(['send', 'receive', 'flushMessage'])
             ->getMock();
         $this->neuteredForkStyle = $this->getMockBuilder(Fork::class)
-            ->setMethods(['fork', 'getPid', 'hardExit'])
+            ->setMethods(['fork', 'getPid', 'hardExit', 'getCompletedChildProcess', 'checkChildProcess'])
             ->setConstructorArgs([$this->stubMessenger])
             ->getMock();
         $this->stubAction = function() {};
@@ -175,5 +176,77 @@ class ForkTest extends TestCase
         );
 
         $this->neuteredForkStyle->spawn(function() {}, []);
+    }
+
+    public function testGetLatestCompletedChecksForACompletedChildProcessAndReturnsIt()
+    {
+        $expectedChildProcessId = 12345;
+        $this->neuteredForkStyle->expects($this->once())
+            ->method('getCompletedChildProcess')
+            ->willReturn($expectedChildProcessId);
+        $this->assertEquals($expectedChildProcessId, $this->neuteredForkStyle->getLatestCompleted());
+    }
+
+    public function testGetLatestCompletedThrowsExceptionWhenErrorOccursFindingCompletedChildProcess()
+    {
+        $this->neuteredForkStyle->expects($this->once())
+            ->method('getCompletedChildProcess')
+            ->willReturn(-1); //signifies error occurred interrogating system
+        $this->expectException(\ThreadConductor\Exception\Fail::class);
+
+        $this->neuteredForkStyle->getLatestCompleted();
+        $this->fail('Failure Exception not thrown when error encountered finding completed child process');
+    }
+
+    public function testGetLatestCompletedReturnsNullWhenNoChildProcessesHaveCompleted()
+    {
+        $this->neuteredForkStyle->expects($this->once())
+            ->method('getCompletedChildProcess')
+            ->willReturn(0); //Returns 0 when no completed child processes are found
+        $this->assertNull($this->neuteredForkStyle->getLatestCompleted());
+    }
+
+    public function testHasCompletedIsTrueForChildProcessThatHasCompleted()
+    {
+        $threadIdentifier = 123456;
+        $this->neuteredForkStyle->expects($this->once())
+            ->method('checkChildProcess')
+            ->with($threadIdentifier)
+            ->willReturn($threadIdentifier);
+        $this->assertTrue($this->neuteredForkStyle->hasCompleted($threadIdentifier));
+    }
+
+    public function testHasCompletedIsFalseForChildProcessThatHasNotCompleted()
+    {
+        $threadIdentifier = 123456;
+        $this->neuteredForkStyle->expects($this->once())
+            ->method('checkChildProcess')
+            ->with($threadIdentifier)
+            ->willReturn(0); //will return 0 if the queried process has not finished
+        $this->assertFalse($this->neuteredForkStyle->hasCompleted($threadIdentifier));
+    }
+
+    public function testHasCompletedThrowsExceptionWhenErrorOccursFindingChildProcess()
+    {
+        $threadIdentifier = 123456;
+        $this->neuteredForkStyle->expects($this->once())
+            ->method('checkChildProcess')
+            ->with($threadIdentifier)
+            ->willReturn(-1); //will return -1 if an error occurs querying the process
+        $this->expectException(\ThreadConductor\Exception\Fail::class);
+        $this->neuteredForkStyle->hasCompleted($threadIdentifier);
+        $this->fail('Failure Exception not thrown when error encountered checking child process');
+    }
+
+    public function testFlushResultFlushesMessageFromMessenger()
+    {
+        $threadIdentifier = 123456;
+        $this->stubMessenger->expects($this->once())->method('flushMessage')->with($threadIdentifier);
+        $this->neuteredForkStyle->flushResult($threadIdentifier);
+    }
+
+    public function testGetMessengerProvidesMessengerUsedForStyle()
+    {
+        $this->assertEquals($this->stubMessenger, $this->neuteredForkStyle->getMessenger());
     }
 }
