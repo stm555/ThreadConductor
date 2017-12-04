@@ -13,23 +13,36 @@ use ThreadConductor\Exception\ConcurrentLimitExceeded as ConcurrentLimitExceeded
 class Fork implements StyleInterface
 {
     const ACTIVE_PROCESSES_MESSENGER_KEY = 'ACTIVE_PROCESS_COUNT';
-    const ACTIVE_PROCESSES_MAXIMUM = 2;
+    const ACTIVE_PROCESSES_MAXIMUM = 10;
     const PCNTL_ANY_PROCESS_ID = -1;
-
-    /**
-     * @var Messenger $messenger
-     */
-    protected $messenger;
 
     const STATUS_CHILD_FORK_VALUE = 0;
     const STATUS_CHILD = 'CHILD';
     const STATUS_PARENT = 'PARENT';
     const STATUS_ERROR = 'ERROR';
 
-    public function __construct(Messenger $messenger)
+    /**
+     * @var Messenger $messenger
+     */
+    protected $messenger;
+
+    /**
+     * @var int Maximum Processes allow for this instance
+     */
+    protected $maximumProcesses;
+
+    /**
+     * Fork constructor.
+     * @param Messenger $messenger Inter-process communication adapter
+     * @param int $maximumProcesses Maximum # of processes to allow in parallel
+     */
+    public function __construct(Messenger $messenger, $maximumProcesses = null)
     {
         //@todo validate this messenger will work with forked processes - ie, in memory methodcache will *not* work
         $this->messenger = $messenger;
+        $this->maximumProcesses = (isset($maximumProcesses) && (int) $maximumProcesses < self::ACTIVE_PROCESSES_MAXIMUM)
+            ? (int) $maximumProcesses
+            : self::ACTIVE_PROCESSES_MAXIMUM;
     }
 
     /**
@@ -165,9 +178,26 @@ class Fork implements StyleInterface
         posix_kill($pid, SIGKILL);
     }
 
+    /**
+     * @return Messenger
+     */
     public function getMessenger()
     {
         return $this->messenger;
+    }
+
+    public function getMaximumProcessesAllowed()
+    {
+        return $this->maximumProcesses;
+    }
+
+    /**
+     * @return int
+     */
+    public function getActiveProcessCount()
+    {
+        $activeProcessCount = intval($this->messenger->receive(self::ACTIVE_PROCESSES_MESSENGER_KEY));
+        return $activeProcessCount;
     }
 
     /**
@@ -176,29 +206,23 @@ class Fork implements StyleInterface
     protected function incrementActiveProcessCount()
     {
         $activeProcessCount = $this->getActiveProcessCount();
-        if ($activeProcessCount >= self::ACTIVE_PROCESSES_MAXIMUM) {
+        if ($activeProcessCount >= $this->maximumProcesses) {
             throw new ConcurrentLimitExceededException(
                 "Can not start new process, {$activeProcessCount} processes already running. "
-                . self::ACTIVE_PROCESSES_MAXIMUM . " processes allowed at a time");
+                . $this->maximumProcesses . " processes allowed at a time");
         }
         $this->messenger->send(self::ACTIVE_PROCESSES_MESSENGER_KEY, ++$activeProcessCount);
     }
 
+    /**
+     *
+     */
     protected function decrementActiveProcessCount()
     {
         $activeProcessCount = $this->getActiveProcessCount();
         if ($activeProcessCount > 0) {
             $this->messenger->send(self::ACTIVE_PROCESSES_MESSENGER_KEY, --$activeProcessCount);
         }
-    }
-
-    /**
-     * @return int
-     */
-    protected function getActiveProcessCount()
-    {
-        $activeProcessCount = intval($this->messenger->receive(self::ACTIVE_PROCESSES_MESSENGER_KEY));
-        return $activeProcessCount;
     }
 
     /**

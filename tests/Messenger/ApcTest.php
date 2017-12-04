@@ -16,7 +16,7 @@ class ApcTest extends TestCase
     public function setUp()
     {
         $this->mockMessenger = $this->getMockBuilder(ApcMessenger::class)
-            ->setMethods(['store', 'fetch', 'delete']) //apc extension function wrappers
+            ->setMethods(['store', 'fetch', 'delete', 'validateEnvironment']) //apc extension function wrappers and skip apc check
             ->getMock();
     }
 
@@ -36,7 +36,7 @@ class ApcTest extends TestCase
         $expectedTimeToLive = 1;
         /** @var ApcMessenger|\PHPUnit_Framework_MockObject_MockObject $mockMessenger */
         $mockMessenger = $this->getMockBuilder(ApcMessenger::class)
-            ->setMethods(['store', 'fetch', 'delete'])
+            ->setMethods(['store', 'fetch', 'delete', 'validateEnvironment'])
             ->setConstructorArgs(['apcMessengerTest', $expectedTimeToLive])
             ->getMock();
         $expectedKey = $mockMessenger->messengerPrefix . $uniqueKey;

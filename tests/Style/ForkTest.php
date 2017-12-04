@@ -11,7 +11,6 @@ use ThreadConductor\Thread;
 
 class ForkTest extends TestCase
 {
-
     /**
      * @var Callable $stubAction
      */
@@ -28,13 +27,21 @@ class ForkTest extends TestCase
      */
     protected $neuteredForkStyle;
 
+    /**
+     * The set of methods that must be disabled in the Fork adapter to prevent accidental process forking
+     * @var string[]
+     */
+    protected $forkNeuterMethods = ['fork', 'getPid', 'hardExit', 'getCompletedChildProcess', 'checkChildProcess'];
+
+
+
     public function setUp()
     {
         $this->stubMessenger = $this->getMockBuilder(Messenger::class)
             ->setMethods(['send', 'receive', 'flushMessage'])
             ->getMock();
         $this->neuteredForkStyle = $this->getMockBuilder(Fork::class)
-            ->setMethods(['fork', 'getPid', 'hardExit', 'getCompletedChildProcess', 'checkChildProcess'])
+            ->setMethods($this->forkNeuterMethods)
             ->setConstructorArgs([$this->stubMessenger])
             ->getMock();
         $this->stubAction = function() {};
@@ -248,5 +255,30 @@ class ForkTest extends TestCase
     public function testGetMessengerProvidesMessengerUsedForStyle()
     {
         $this->assertEquals($this->stubMessenger, $this->neuteredForkStyle->getMessenger());
+    }
+
+    public function testProvidingMaximumProcessCountOverAllowedTruncatesToAllowed()
+    {
+        //some amount more than the max
+        $moreProcessesThanAllowed = Fork::ACTIVE_PROCESSES_MAXIMUM + 1;
+        /** @var Fork|\PHPUnit_Framework_MockObject_MockObject $style */
+        $style = $this->getMockBuilder(Fork::class)
+            ->setMethods($this->forkNeuterMethods)
+            ->setConstructorArgs([$this->stubMessenger, $moreProcessesThanAllowed])
+            ->getMock();
+        $this->assertEquals(Fork::ACTIVE_PROCESSES_MAXIMUM, $style->getMaximumProcessesAllowed());
+    }
+
+    public function testProvidingMaximumProcessCountWithinAllowedUsesThatMaximum()
+    {
+        //some amount more than the max
+        $lessProcessesThanAllowed = Fork::ACTIVE_PROCESSES_MAXIMUM - 1;
+        /** @var Fork|\PHPUnit_Framework_MockObject_MockObject $style */
+        $style = $this->getMockBuilder(Fork::class)
+            ->setMethods($this->forkNeuterMethods)
+            ->setConstructorArgs([$this->stubMessenger, $lessProcessesThanAllowed])
+            ->getMock();
+        $this->assertEquals($lessProcessesThanAllowed, $style->getMaximumProcessesAllowed());
+
     }
 }
