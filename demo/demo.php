@@ -11,86 +11,72 @@ use ThreadConductor\Exception\Timeout as TimeoutException;
 use Kanel\Benchmark\Benchmark;
 
 //just using Composer's autoloader, so make sure composer has run
+const JUDGE_KEY = 'largestSlackTime';
 require_once "../vendor/autoload.php";
 
 //Some handy constants for use in formatting durations
 const INTERVAL_SPEC_PREFIX_PERIOD = 'P';
 const INTERVAL_SPEC_PREFIX_TIME = 'T';
 
-$messenger = new ApcMessenger();
-$style = new ForkStyle($messenger, 5);
+try { $messenger = new ApcMessenger(); }
+catch (Exception $e) {
+    exit("Could not use APC Messenger for Demo - " . $e->getMessage());
+}
+$parallelStyle = new ForkStyle($messenger, 5);
 $serialStyle = new ThreadConductor\Style\Serial();
 
 //Do some simple stuff in parallel
 $slacker = function ($slackTime) {
-    $napTime = rand(1, $slackTime);
-    echo "\nSlacking for " . describeDuration($napTime);
-    sleep($napTime);
-    return $napTime;
+    echo "\nSlacking for " . describeDuration($slackTime);
+    sleep($slackTime);
+    return $slackTime;
 };
 
 //Do some shared value comparison .. running in parallel this is almost assured to have race conditions
 $slackerJudge = function ($slackTime) use ($messenger) {
     //introducing artificial computation time
-    sleep(1);
+    //sleep(1);
 
-    $largestSlackTime = intval($messenger->receive('largestSlackTime'));
+    $largestSlackTime = intval($messenger->receive('' . JUDGE_KEY . ''));
     echo "\nComparing {$slackTime} to {$largestSlackTime}";
     if ($slackTime > $largestSlackTime) {
-        $messenger->send('largestSlackTime', $slackTime);
+        $messenger->send(JUDGE_KEY, $slackTime);
         return true;
     }
     return false;
 };
+$sleepWindows = [ 'small' => 2, 'medium' => 4, 'large' => 5, 'extra large' => 10];
 
-demonstrationExecution($slacker, $style);
-
-$sleepWindows = [ 'small' => 2, 'medium' => 5, 'large' => 10, 'extra large' => 20];
-
-//run as many of these mappings in parallel as the adapter allows
-$benchmark = new Benchmark();
-$benchmark->start();
-$sleepResults = arrayMap($sleepWindows, $slacker, $style);
-$arrayMapTiming = $benchmark->stop();
-foreach ($sleepWindows as $description => $size) {
-    $message = "\tSleep Window \"{$description}\" ({$size}) : Actual Sleep: ";
-    $message .= (isset($sleepResults[$description])) ? $sleepResults[$description] : "[Unknown]";
-    echo "\n" . $message;
-}
-echo "\nTook " . describeDuration($arrayMapTiming['time']) . " to process array map in parallel";
-
-$benchmark->start();
+Benchmark::start();
 $sleepResults = arrayMap($sleepWindows, $slacker, $serialStyle);
-$arrayMapTiming = $benchmark->stop();
-foreach ($sleepWindows as $description => $size) {
-    $message = "\tSleep Window \"{$description}\" ({$size}) : Actual Sleep: ";
-    $message .= (isset($sleepResults[$description])) ? $sleepResults[$description] : "[Unknown]";
-    echo "\n" . $message;
-}
+$arrayMapTiming = Benchmark::stop();
+describeTransformationResult($sleepWindows, $sleepResults);
 echo "\nTook " . describeDuration($arrayMapTiming['time']) . " to process array map serially";
+//run as many of these mappings in parallel as the adapter allows
+Benchmark::start();
+$sleepResults = arrayMap($sleepWindows, $slacker, $parallelStyle);
+$arrayMapTiming = Benchmark::stop();
+describeTransformationResult($sleepWindows, $sleepResults);
+echo "\nTook " . describeDuration($arrayMapTiming['time']) . " to process array map in parallel";
+echo "\n";
 
-//reversed the array to produce more interesting results
-//judge as many of these properties in parallel as the adapter allows
-$benchmark->start();
-$filteredResults = arrayFilter(array_reverse($sleepWindows, true), $slackerJudge, $style);
-$filterTiming = $benchmark->stop();
-foreach ($sleepWindows as $description => $size) {
-    $message = "\tSleep Window \"{$description}\" ({$size}) ";
-    $message .= (isset($filteredResults[$description])) ? "Survived" : "Removed";
-    echo "\n" . $message;
+//randomize the array order to make the results more interesting
+$shuffledSleepWindows = [];
+foreach (array_rand($sleepWindows, count($sleepWindows)) as $key) {
+    $shuffledSleepWindows[$key] = $sleepWindows[$key];
 }
-echo "\nTook " . describeDuration($arrayMapTiming['time']) . " to process filter in parallel";
-
 //Serially processed, takes longer but no race conditions
-$benchmark->start();
-$filteredResults = arrayFilter(array_reverse($sleepWindows, true), $slackerJudge, $serialStyle);
-$filterSerialTiming = $benchmark->stop();
-foreach ($sleepWindows as $description => $size) {
-    $message = "\tSleep Window \"{$description}\" ({$size}) ";
-    $message .= (isset($filteredResults[$description])) ? "Survived" : "Removed";
-    echo "\n" . $message;
-}
+Benchmark::start();
+$filteredResults = arrayFilter($shuffledSleepWindows, $slackerJudge, $serialStyle);
+$filterSerialTiming = Benchmark::stop();
 echo "\nTook " . describeDuration($arrayMapTiming['time']) . " to process filter serially";
+//reset the comparison for another run
+$messenger->flushMessage(JUDGE_KEY);
+//judge as many of these properties in parallel as the adapter allows, faster but hits race conditions producing non-deterministic results
+Benchmark::start();
+$filteredResults = arrayFilter($shuffledSleepWindows, $slackerJudge, $parallelStyle);
+$filterTiming = Benchmark::stop();
+echo "\nTook " . describeDuration($arrayMapTiming['time']) . " to process filter in parallel";
 
 
 //---- Utility Functions
@@ -135,9 +121,14 @@ function arrayFilter(array $array, callable $judge, ThreadConductor\Style $style
     $filteredArray = [];
     try {
         foreach($threadConductor as $key => $result) {
+            $message = "\tSleep Window \"{$key}\" ({$array[$key]}) ";
             if ($result) {
                 $filteredArray[$key] = $array[$key];
+                $message .= "Survived";
+            } else {
+                $message .= "Removed";
             }
+            echo "\n" . $message;
         }
     } catch (TimeoutException $timeoutException) {
         echo "\nDid not judge all values, exceeded execution time - " . $timeoutException->getMessage();
@@ -146,42 +137,16 @@ function arrayFilter(array $array, callable $judge, ThreadConductor\Style $style
 }
 
 /**
- * @param callable $function
- * @param Style $style
+ * Compares original array to filtered array and describes differences
+ * @param $originalArray
+ * @param $filteredArray
  */
-function demonstrationExecution(Callable $function, Style $style)
+function describeTransformationResult($originalArray, $filteredArray)
 {
-    $benchmark = new Benchmark();
-    $benchmark->start();
-    $threadConductor = new Conductor($style);
-    $threadConductor->addAction('first', $function, [5]);
-    $threadConductor->addAction('second', $function, [5]);
-    $threadConductor->addAction('third', $function, [5]);
-    $threadConductor->addAction('fourth', $function, [5]);
-    $threadConductor->addAction('fifth', $function, [5]);
-    $threadConductor->addAction('sixth', $function, [5]);
-
-    $threadingDescription = "Attempting " . $threadConductor->getActionCount() . " threads using "
-        . get_class($style) . " for threading";
-    if ($style instanceOf ForkStyle) {
-        $threadingDescription .= " and " . get_class($style->getMessenger()) . " for communication";
+    foreach ($originalArray as $description => $size) {
+        $message = "\tSleep Window \"{$description}\" ({$size}) : Actual Sleep: ";
+        $message .= (isset($filteredArray[$description])) ? $filteredArray[$description] : "[Unknown]";
+        echo "\n" . $message;
     }
-    echo "\n" . $threadingDescription;
-
-    //wait for completion..
-    $results = [];
-    try {
-        //$results = iterator_to_array($threadConductor);
-        foreach ($threadConductor as $actionKey => $actionResult) {
-            $results[$actionKey] = $actionResult;
-        }
-    } catch (Exception $exception) {
-        echo "\nFailed to finish all threads - " . $exception->getMessage();
-    }
-    echo "\nSlacked for the following times: ";
-    foreach ($results as $actionKey => $actionResult) {
-        echo "\n\t$actionKey slacked for " . describeDuration($actionResult);
-    }
-    $timing = $benchmark->stop();
-    echo "\nDemo Execution: " . describeDuration($timing['time']) . " elapsed, yet " . describeDuration(array_sum($results)) . " Slacked." ;
 }
+

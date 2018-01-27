@@ -38,7 +38,7 @@ class Fork implements StyleInterface
      */
     public function __construct(Messenger $messenger, $maximumProcesses = null)
     {
-        //@todo validate this messenger will work with forked processes - ie, in memory methodcache will *not* work
+        //@todo validate this messenger will work with forked processes - ie, non-shared in memory will *not* work
         $this->messenger = $messenger;
         $this->maximumProcesses = (isset($maximumProcesses) && (int) $maximumProcesses < self::ACTIVE_PROCESSES_MAXIMUM)
             ? (int) $maximumProcesses
